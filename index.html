@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Futsal ELO Manager v3</title>
+    <title>Futsal ELO Manager v4</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -56,6 +56,13 @@
             
             <!-- Панель фильтров -->
             <div id="filter-panel" class="hidden mt-2 bg-slate-700 p-2 rounded space-y-2 text-xs">
+                <div>
+                    <span class="block text-slate-300 mb-1">Лига:</span>
+                    <select id="filter-league" class="bg-slate-600 text-white p-1 rounded w-full mb-2">
+                        <option value="">Все лиги</option>
+                        <!-- Опции добавятся JS -->
+                    </select>
+                </div>
                 <div>
                     <span class="block text-slate-300 mb-1">Период игр:</span>
                     <div class="flex gap-1">
@@ -125,6 +132,11 @@
                 <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Дата</label>
                 <input type="date" id="match-date" class="w-full p-2 border rounded bg-white mb-3">
                 
+                <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Лига</label>
+                <select id="match-league" class="w-full p-2 border rounded bg-white mb-3 text-sm">
+                    <!-- Опции добавятся JS -->
+                </select>
+
                 <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Важность (K): <span id="match-importance-val">30</span></label>
                 <input type="range" id="match-importance" min="10" max="60" step="5" value="30" class="w-full h-2 bg-slate-300 rounded-lg appearance-none cursor-pointer" oninput="updateMatchCalc(); renderTeamLists();">
                 <div class="flex justify-between text-xs text-slate-400 mt-1">
@@ -234,10 +246,17 @@
 </div>
 
 <script>
+    // --- СПИСОК ЛИГ ---
+    const LEAGUES = [
+        "Южная 1", "Южная 2", "Южная 3", "Южная 4",
+        "Красноармейская 1", "Красноармейская 2",
+        "Темп", "Другое"
+    ];
+
     // --- ДАННЫЕ И СОСТОЯНИЕ ---
     let db = {
         players: [], // { id, name, dob, startGames, startElo }
-        matches: []  // { id, date, scoreA, scoreB, teamA: [item], teamB: [item], importance }
+        matches: []  // { id, date, scoreA, scoreB, teamA, teamB, importance, league }
     };
 
     let currentMatch = {
@@ -247,7 +266,8 @@
         teamA: [], 
         teamB: [],
         date: new Date().toISOString().split('T')[0],
-        importance: 30
+        importance: 30,
+        league: LEAGUES[0]
     };
 
     let chartInstance = null;
@@ -258,6 +278,7 @@
         if (savedData) {
             db = JSON.parse(savedData);
         }
+        initLeagueSelects(); // Заполняем выпадающие списки
         recalculateHistory();
         renderPlayerList();
         
@@ -266,6 +287,23 @@
             if (!e.target.closest('#input-team-b')) document.getElementById('suggest-b').classList.add('hidden');
         });
     };
+
+    function initLeagueSelects() {
+        const matchSelect = document.getElementById('match-league');
+        const filterSelect = document.getElementById('filter-league');
+        
+        LEAGUES.forEach(l => {
+            // Для матча
+            const optM = document.createElement('option');
+            optM.value = l; optM.innerText = l;
+            matchSelect.appendChild(optM);
+            
+            // Для фильтра
+            const optF = document.createElement('option');
+            optF.value = l; optF.innerText = l;
+            filterSelect.appendChild(optF);
+        });
+    }
 
     function saveData() { localStorage.setItem('futsalEloData', JSON.stringify(db)); }
 
@@ -282,12 +320,10 @@
         return age;
     }
 
-    // Коэффициент разницы мячей (World Football Elo Ratings)
     function getGoalDiffMultiplier(scoreA, scoreB) {
         const diff = Math.abs(scoreA - scoreB);
         if (diff <= 1) return 1;
         if (diff === 2) return 1.5;
-        // Для 3+ мячей: (11 + diff) / 8
         return (11 + diff) / 8;
     }
 
@@ -337,7 +373,6 @@
             if (m.scoreA > m.scoreB) { W_A = 1; W_B = 0; }
             else if (m.scoreA < m.scoreB) { W_A = 0; W_B = 1; }
 
-            // Учитываем разницу мячей (G)
             const G = getGoalDiffMultiplier(m.scoreA, m.scoreB);
             
             const baseDeltaA = m.importance * G * (W_A - We_A);
@@ -378,21 +413,36 @@
         const filterDateTo = document.getElementById('filter-date-to').value;
         const filterBirthFrom = document.getElementById('filter-birth-from').value;
         const filterBirthTo = document.getElementById('filter-birth-to').value;
+        const filterLeague = document.getElementById('filter-league').value; // Новое поле
 
         let players = db.players.filter(p => {
+            // Фильтр по возрасту
             if (filterBirthFrom || filterBirthTo) {
                 const year = p.dob ? new Date(p.dob).getFullYear() : null;
                 if (!year) return false;
                 if (filterBirthFrom && year < parseInt(filterBirthFrom)) return false;
                 if (filterBirthTo && year > parseInt(filterBirthTo)) return false;
             }
-            if (filterDateFrom || filterDateTo) {
+            
+            // Фильтр по дате и ЛИГЕ
+            if (filterDateFrom || filterDateTo || filterLeague) {
                 const hasGameInPeriod = p.history.some(h => {
                     if (!h.date || h.date === 'Начало') return false;
+                    
+                    // Проверка даты
                     let d = new Date(h.date);
                     let from = filterDateFrom ? new Date(filterDateFrom) : new Date('1900-01-01');
                     let to = filterDateTo ? new Date(filterDateTo) : new Date('2100-01-01');
-                    return d >= from && d <= to;
+                    if (d < from || d > to) return false;
+
+                    // Проверка лиги (если выбрана)
+                    if (filterLeague) {
+                        const match = db.matches.find(m => m.id === h.matchId);
+                        if (!match) return false;
+                        if (match.league !== filterLeague) return false;
+                    }
+
+                    return true;
                 });
                 if (!hasGameInPeriod) return false;
             }
@@ -541,13 +591,19 @@
             const resColor = myScore > oppScore ? 'bg-green-100 text-green-700' : (myScore < oppScore ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700');
             const resText = myScore > oppScore ? 'W' : (myScore < oppScore ? 'L' : 'D');
             const sign = h.change > 0 ? '+' : '';
+            
+            // Отображаем лигу в истории
+            const leagueLabel = match.league ? `<div class="text-[10px] text-slate-400">${match.league}</div>` : '';
 
             const row = document.createElement('div');
             row.className = "flex justify-between items-center p-3 border rounded bg-slate-50 cursor-pointer active:bg-slate-200";
             row.onclick = () => editMatch(match.id);
             row.innerHTML = `
                 <div class="flex items-center gap-3">
-                    <div class="font-mono text-xs text-slate-400 w-20">${h.date}</div>
+                    <div class="w-20">
+                        <div class="font-mono text-xs text-slate-500">${h.date}</div>
+                        ${leagueLabel}
+                    </div>
                     <div class="font-bold w-12 text-center text-lg">${match.scoreA}:${match.scoreB}</div>
                     <div class="text-xs font-bold px-2 py-1 rounded ${resColor}">${resText}</div>
                 </div>
@@ -597,6 +653,7 @@
                 id: m.id,
                 scoreA: m.scoreA, scoreB: m.scoreB,
                 date: m.date, importance: m.importance,
+                league: m.league || LEAGUES[0], // Восстанавливаем лигу
                 teamA: restoreTeam(m.teamA),
                 teamB: restoreTeam(m.teamB)
             };
@@ -606,7 +663,8 @@
                 scoreA: 0, scoreB: 0,
                 teamA: [], teamB: [],
                 date: new Date().toISOString().split('T')[0],
-                importance: 30
+                importance: 30,
+                league: LEAGUES[0] // Дефолтная лига
             };
         }
         
@@ -614,6 +672,7 @@
         document.getElementById('score-b').innerText = currentMatch.scoreB;
         document.getElementById('match-date').value = currentMatch.date;
         document.getElementById('match-importance').value = currentMatch.importance;
+        document.getElementById('match-league').value = currentMatch.league; // Установка значения селекта
         
         renderTeamLists();
         updateMatchCalc(); 
@@ -641,12 +700,11 @@
         closeScreen('screen-match');
     }
     
-    // !!! ИЗМЕНЕНИЕ СЧЕТА СРАЗУ ОБНОВЛЯЕТ СПИСКИ !!!
     function changeScore(team, delta) {
         if (team === 'A') { currentMatch.scoreA = Math.max(0, currentMatch.scoreA + delta); document.getElementById('score-a').innerText = currentMatch.scoreA; }
         else { currentMatch.scoreB = Math.max(0, currentMatch.scoreB + delta); document.getElementById('score-b').innerText = currentMatch.scoreB; }
         updateMatchCalc();
-        renderTeamLists(); // Важно: перерисовываем цифры
+        renderTeamLists(); 
     }
 
     function renderTeamLists() {
@@ -779,12 +837,6 @@
         const We_A = 1 / (Math.pow(10, -dr / 400) + 1);
         const We_B = 1 - We_A;
 
-        let W_A = 0.5;
-        if (currentMatch.scoreA > currentMatch.scoreB) W_A = 1;
-        else if (currentMatch.scoreA < currentMatch.scoreB) W_A = 0;
-        const W_B = 1 - W_A;
-
-        // G-factor для превью
         const G = getGoalDiffMultiplier(currentMatch.scoreA, currentMatch.scoreB);
 
         const baseDeltaA = currentMatch.importance * G * (W_A - We_A);
@@ -818,6 +870,8 @@
         }
         
         currentMatch.date = document.getElementById('match-date').value;
+        currentMatch.league = document.getElementById('match-league').value; // Сохраняем лигу
+
         const matchToSave = JSON.parse(JSON.stringify(currentMatch));
 
         if (currentMatch.id) {
