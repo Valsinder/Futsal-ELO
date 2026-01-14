@@ -7,7 +7,6 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>Futsal ELO</title>
     
-    <!-- Подключение манифеста для PWA -->
     <link rel="manifest" href="./manifest.json">
     <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/33/33736.png">
 
@@ -34,10 +33,13 @@
         <div class="bg-slate-800 text-white p-4 sticky top-0 z-30 shadow-md">
             <div class="flex justify-between items-center mb-3">
                 <h1 class="text-xl font-bold"><i class="fas fa-futbol mr-2"></i>Futsal ELO</h1>
-                <div class="space-x-2">
+                <div class="flex gap-2">
                     <button onclick="exportData()" class="text-xs bg-slate-600 px-2 py-1 rounded hover:bg-slate-500"><i class="fas fa-download"></i> Save</button>
                     <button onclick="importData()" class="text-xs bg-slate-600 px-2 py-1 rounded hover:bg-slate-500"><i class="fas fa-upload"></i> Load</button>
-                    <input type="file" id="file-input" class="hidden" onchange="handleFileSelect(event)">
+                    <!-- Новая кнопка: Вставка из буфера -->
+                    <button onclick="importFromClipboard()" class="text-xs bg-slate-600 px-2 py-1 rounded hover:bg-slate-500" title="Вставить текст базы"><i class="fas fa-paste"></i></button>
+                    <!-- Добавлен accept=".json" для фильтрации -->
+                    <input type="file" id="file-input" class="hidden" accept=".json,application/json" onchange="handleFileSelect(event)">
                 </div>
             </div>
             <div class="grid grid-cols-2 gap-2 text-sm">
@@ -206,7 +208,6 @@
 </div>
 
 <script>
-    // --- РЕГИСТРАЦИЯ SERVICE WORKER (ДЛЯ ОФЛАЙНА) ---
     if ('serviceWorker' in navigator) {
         navigator.serviceWorker.register('./sw.js')
             .then(() => console.log('Service Worker Registered'))
@@ -339,7 +340,38 @@
     function saveMatch() { const errorDiv = document.getElementById('match-error'); if (currentMatch.teamA.length + currentMatch.teamB.length < 2) { errorDiv.innerText = "Мало игроков!"; errorDiv.classList.remove('hidden'); return; } currentMatch.date = document.getElementById('match-date').value; currentMatch.league = document.getElementById('match-league').value; const matchToSave = JSON.parse(JSON.stringify(currentMatch)); if (currentMatch.id) { const idx = db.matches.findIndex(m => m.id === currentMatch.id); if (idx !== -1) db.matches[idx] = matchToSave; } else { matchToSave.id = Date.now(); db.matches.push(matchToSave); } recalculateHistory(); renderPlayerList(); closeScreen('screen-match'); }
     function exportData() { const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(db)); const anchor = document.createElement('a'); anchor.setAttribute("href", dataStr); anchor.setAttribute("download", "futsal_elo_" + new Date().toISOString().split('T')[0] + ".json"); document.body.appendChild(anchor); anchor.click(); anchor.remove(); const simpleList = db.players.map(p => ({ name: p.name, dob: p.dob })); const sStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(simpleList)); const sAnchor = document.createElement('a'); sAnchor.setAttribute("href", sStr); sAnchor.setAttribute("download", "players_list.json"); document.body.appendChild(sAnchor); sAnchor.click(); sAnchor.remove(); }
     function importData() { document.getElementById('file-input').click(); }
-    function handleFileSelect(e) { const file = e.target.files[0]; if (!file) return; const reader = new FileReader(); reader.onload = function(ev) { try { const data = JSON.parse(ev.target.result); if (data.players && data.matches) { if(confirm("Заменить все данные?")) { db = data; recalculateHistory(); renderPlayerList(); alert("Готово!"); } } else alert("Неверный формат"); } catch (err) { alert("Ошибка чтения"); } }; reader.readAsText(file); }
+    
+    // --- ИСПРАВЛЕННАЯ ФУНКЦИЯ ЗАГРУЗКИ ---
+    function handleFileSelect(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = function(ev) {
+            try {
+                const data = JSON.parse(ev.target.result);
+                if (data.players && data.matches) {
+                    if(confirm("Заменить все данные?")) { db = data; recalculateHistory(); renderPlayerList(); alert("Готово!"); }
+                } else alert("Ошибка: Неверный формат файла (нет игроков или матчей)");
+            } catch (err) { 
+                alert("Ошибка чтения: " + err.message + "\nУбедитесь, что файл скачан на устройство."); 
+            }
+        };
+        reader.readAsText(file);
+    }
+
+    // --- НОВАЯ ФУНКЦИЯ: ВСТАВКА ИЗ БУФЕРА ---
+    async function importFromClipboard() {
+        try {
+            const text = await navigator.clipboard.readText();
+            if (!text) return alert("Буфер обмена пуст");
+            const data = JSON.parse(text);
+            if (data.players && data.matches) {
+                if(confirm("Загрузить базу из буфера обмена?")) { db = data; recalculateHistory(); renderPlayerList(); alert("Готово!"); }
+            } else alert("В буфере неверные данные");
+        } catch (err) {
+            alert("Не удалось прочитать буфер (нужно разрешение): " + err.message);
+        }
+    }
 </script>
 </body>
 </html>
