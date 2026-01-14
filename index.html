@@ -36,9 +36,8 @@
                 <div class="flex gap-2">
                     <button onclick="exportData()" class="text-xs bg-slate-600 px-2 py-1 rounded hover:bg-slate-500"><i class="fas fa-download"></i> Save</button>
                     <button onclick="importData()" class="text-xs bg-slate-600 px-2 py-1 rounded hover:bg-slate-500"><i class="fas fa-upload"></i> Load</button>
-                    <!-- Новая кнопка: Вставка из буфера -->
-                    <button onclick="importFromClipboard()" class="text-xs bg-slate-600 px-2 py-1 rounded hover:bg-slate-500" title="Вставить текст базы"><i class="fas fa-paste"></i></button>
-                    <!-- Добавлен accept=".json" для фильтрации -->
+                    <!-- Вернул кнопку прямой вставки из буфера -->
+                    <button onclick="importFromClipboard()" class="text-xs bg-slate-600 px-2 py-1 rounded hover:bg-slate-500" title="Вставить из буфера"><i class="fas fa-paste"></i></button>
                     <input type="file" id="file-input" class="hidden" accept=".json,application/json" onchange="handleFileSelect(event)">
                 </div>
             </div>
@@ -310,10 +309,41 @@
         });
 
         players.forEach((p, index) => {
-            let detailStr = '';
-            if (sortMode === 'delta_desc' && (filterDateFrom || filterDateTo)) { const sign = p.periodDelta > 0 ? '+' : ''; const color = p.periodDelta > 0 ? 'text-green-600' : (p.periodDelta < 0 ? 'text-red-500' : 'text-gray-400'); detailStr = `<span class="${color} font-bold text-xs">${sign}${Math.round(p.periodDelta)}</span>`; }
-            const row = document.createElement('div'); row.className = "player-row bg-white p-3 rounded shadow-sm border border-slate-100 flex justify-between items-center cursor-pointer h-14"; row.onclick = () => openPlayerStats(p.id);
-            row.innerHTML = `<div class="flex items-center gap-3 overflow-hidden"><div class="text-slate-400 text-xs font-mono w-4">${index + 1}</div><div class="font-semibold text-slate-800 truncate leading-tight">${p.name}<div class="text-[10px] text-slate-400 font-normal">${p.gamesPlayed} дн.</div></div></div><div class="flex flex-col items-end"><div class="font-mono font-bold text-lg text-slate-700">${Math.round(p.currentElo)}</div>${detailStr}</div>`;
+            // ЛОГИКА ОТОБРАЖЕНИЯ ЦИФР
+            let mainDisplay = Math.round(p.currentElo);
+            let mainColor = "text-slate-700";
+            let subDisplay = "";
+
+            // Если сортировка по изменению рейтинга И выбраны даты
+            if (sortMode === 'delta_desc' && (filterDateFrom || filterDateTo)) {
+                const val = Math.round(p.periodDelta);
+                const sign = val > 0 ? '+' : '';
+                mainDisplay = `${sign}${val}`;
+                
+                if (val > 0) mainColor = "text-green-600";
+                else if (val < 0) mainColor = "text-red-500";
+                else mainColor = "text-slate-400";
+                
+                // Показываем текущий ELO маленьким снизу
+                subDisplay = `<div class="text-[10px] text-slate-400 font-normal mt-1">Elo: ${Math.round(p.currentElo)}</div>`;
+            }
+
+            const row = document.createElement('div'); 
+            row.className = "player-row bg-white p-3 rounded shadow-sm border border-slate-100 flex justify-between items-center cursor-pointer h-14"; 
+            row.onclick = () => openPlayerStats(p.id);
+            row.innerHTML = `
+                <div class="flex items-center gap-3 overflow-hidden">
+                    <div class="text-slate-400 text-xs font-mono w-4">${index + 1}</div>
+                    <div class="font-semibold text-slate-800 truncate leading-tight">
+                        ${p.name}
+                        <div class="text-[10px] text-slate-400 font-normal">${p.gamesPlayed} дн.</div>
+                    </div>
+                </div>
+                <div class="flex flex-col items-end">
+                    <div class="font-mono font-bold text-lg ${mainColor}">${mainDisplay}</div>
+                    ${subDisplay}
+                </div>
+            `;
             list.appendChild(row);
         });
     }
@@ -341,7 +371,6 @@
     function exportData() { const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(db)); const anchor = document.createElement('a'); anchor.setAttribute("href", dataStr); anchor.setAttribute("download", "futsal_elo_" + new Date().toISOString().split('T')[0] + ".json"); document.body.appendChild(anchor); anchor.click(); anchor.remove(); const simpleList = db.players.map(p => ({ name: p.name, dob: p.dob })); const sStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(simpleList)); const sAnchor = document.createElement('a'); sAnchor.setAttribute("href", sStr); sAnchor.setAttribute("download", "players_list.json"); document.body.appendChild(sAnchor); sAnchor.click(); sAnchor.remove(); }
     function importData() { document.getElementById('file-input').click(); }
     
-    // --- ИСПРАВЛЕННАЯ ФУНКЦИЯ ЗАГРУЗКИ ---
     function handleFileSelect(e) {
         const file = e.target.files[0];
         if (!file) return;
@@ -359,7 +388,7 @@
         reader.readAsText(file);
     }
 
-    // --- НОВАЯ ФУНКЦИЯ: ВСТАВКА ИЗ БУФЕРА ---
+    // ВОЗВРАЩЕННАЯ ФУНКЦИЯ ПРЯМОЙ ВСТАВКИ ИЗ БУФЕРА
     async function importFromClipboard() {
         try {
             const text = await navigator.clipboard.readText();
